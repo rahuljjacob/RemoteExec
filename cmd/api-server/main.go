@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+
 	"remoteExec/internal/models"
 	"remoteExec/internal/utils"
 
@@ -10,6 +12,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var ctx = context.Background()
+
+var rdb = redis.NewClient(&redis.Options{
+	Addr:     "localhost:6379",
+	Password: "",
+	DB:       0,
+})
+
 func main() {
 	fmt.Println("Starting Router")
 	r := setupRouter()
@@ -17,6 +27,7 @@ func main() {
 }
 
 func setupRouter() *gin.Engine {
+
 	router := gin.Default()
 
 	router.POST("/execute", executeHandler)
@@ -58,7 +69,11 @@ func executeHandler(c *gin.Context) {
 
 	utils.PackRedisJob(&req, &queueElement, job_id)
 
-	// push queueElement to REDIS queue here
+	err := utils.PushJobToRedisQueue(rdb, queueElement)
+
+	if err != nil {
+		panic(err)
+	}
 }
 
 func statusHandler(c *gin.Context) {
