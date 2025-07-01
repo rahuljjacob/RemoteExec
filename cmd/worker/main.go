@@ -3,32 +3,50 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
+	// "remoteExec/internal/models"
+	"remoteExec/internal/models"
 	"remoteExec/internal/utils"
 
+	// "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"github.com/redis/go-redis/v9"
 )
 
 var ctx = context.Background()
 
+var rdb = redis.NewClient(&redis.Options{
+	Addr:     "localhost:6379",
+	Password: "",
+	DB:       0,
+})
+
 func main() {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379", // Redis container or service address
-		// Password: "",         // Add if Redis requires a password
-		DB: 0,
-	})
+	var curJob *models.RedisJob
+	var stdout string
+	// var stderr string
+	var err error
 
-	fmt.Println("Worker started. Waiting for jobs...")
+	timeout := 100 * time.Second
 
-	for {
-		job, err := utils.PopJobFromQueue(rdb)
-		if err != nil {
-			log.Println("Error popping job:", err)
-			time.Sleep(1 * time.Second) // Prevent tight loop on error
-			continue
-		}
-		fmt.Println(job)
+	curJob, err = utils.PopJobFromRedisQueue(rdb, timeout)
+
+	apiClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		panic(err)
 	}
+	defer apiClient.Close()
+
+	stdout, _, err = utils.RunPythonJobContainer(
+		curJob,
+		"python:3.11-alpine",
+		apiClient,
+	)
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("The stdout is", stdout)
 }

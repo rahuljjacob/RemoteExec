@@ -4,7 +4,7 @@ Code submission part
 - User can submit CODE using a POST request
 - User can submit polling requests using GET
 - Validate Code 
-- Enqueue into a task queue (REDIS/Valkey??)
+- Enqueue into a task queue (redis)
 - Make task ID
 
 
@@ -41,8 +41,6 @@ rce-api/
 │   └── worker/             # main.go (imports internal packages)
 │
 ├── internal/
-│   ├── dockerexec/         # package dockerexec
-│   ├── redisq/             # package redisq
 │   ├── models/             # package models
 │   └── utils/              # package utils
 │

@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -8,6 +10,9 @@ import (
 
 	"remoteExec/internal/models"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -36,48 +41,136 @@ func PackRedisJob(source *models.ExecuteRequest, target *models.RedisJob, job_id
 }
 
 func PushJobToRedisQueue(rdb *redis.Client, job models.RedisJob) error {
-	// Step 1: Store job data as hash
+	ctx := context.Background() // Ensure ctx is defined locally if not global
+
 	hashKey := "job:" + job.Id
 
-	_, err := rdb.HSet(ctx, hashKey, map[string]string{
+	_, err := rdb.HSet(ctx, hashKey, map[string]interface{}{
 		"Language":       job.Language,
 		"SourceCode":     job.SourceCode,
 		"SubmissionTime": job.SubmissionTime,
 		"Id":             job.Id,
+		"Status":         "PENDING",
+		"Output":         "",
 	}).Result()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to store job metadata: %w", err)
 	}
 
-	// Step 2: Push job ID into queue (a Redis list)
 	_, err = rdb.RPush(ctx, "jobQueue", job.Id).Result()
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to queue job ID: %w", err)
+	}
+
+	err = rdb.Expire(ctx, hashKey, time.Hour).Err()
+	if err != nil {
+		return fmt.Errorf("failed to set expiration: %w", err)
+	}
+
+	return nil
 }
 
-func PopJobFromQueue(rdb *redis.Client) (*models.RedisJob, error) {
-	// Block until a job is available in the queue
-	result, err := rdb.BLPop(ctx, 0*time.Second, "jobQueue").Result()
+func PopJobFromRedisQueue(rdb *redis.Client, timeout time.Duration) (*models.RedisJob, error) {
+	ctx := context.Background()
+
+	result, err := rdb.BLPop(ctx, timeout, "jobQueue").Result()
 	if err != nil {
-		return nil, err
+		if err == redis.Nil {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("error while popping job from queue: %w", err)
 	}
-	jobID := result[1]
 
-	// Fetch hash data using job ID
-	hashKey := "job:" + jobID
-	data, err := rdb.HGetAll(ctx, hashKey).Result()
+	jobId := result[1]
+	hashKey := "job:" + jobId
+
+	jobData, err := rdb.HGetAll(ctx, hashKey).Result()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching job data: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("job %s not found", jobID)
+	if len(jobData) == 0 {
+		return nil, fmt.Errorf("job with ID %s not found in Redis", jobId)
 	}
 
-	rdb.Del(ctx, jobID)
+	job := &models.RedisJob{
+		Id:             jobData["Id"],
+		Language:       jobData["Language"],
+		SourceCode:     jobData["SourceCode"],
+		SubmissionTime: jobData["SubmissionTime"],
+	}
 
-	return &models.RedisJob{
-		Language:       data["Language"],
-		SourceCode:     data["SourceCode"],
-		SubmissionTime: data["SubmissionTime"],
-		Id:             data["Id"],
-	}, nil
+	return job, nil
+}
+
+func RunPythonJobContainer(
+	job *models.RedisJob,
+	imageName string,
+	cli *client.Client,
+) (string, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := cli.ContainerCreate(ctx, &container.Config{
+		Image:        imageName,
+		Cmd:          []string{"python3", "/code/main.py"},
+		WorkingDir:   "/code",
+		AttachStdout: true,
+		AttachStderr: true,
+	}, &container.HostConfig{
+		NetworkMode:    "none",
+		ReadonlyRootfs: false,
+		Privileged:     false,
+		CapDrop:        []string{"ALL"},
+		Tmpfs: map[string]string{
+			"/code": "rw",
+		},
+	}, nil, nil, "")
+
+	if err != nil {
+		panic(err)
+	}
+	defer cli.ContainerRemove(
+		context.Background(),
+		resp.ID,
+		container.RemoveOptions{RemoveVolumes: true, Force: true},
+	)
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	code := []byte(job.SourceCode)
+
+	tw.WriteHeader(&tar.Header{
+		Name: "main.py",
+		Mode: 0644,
+		Size: int64(len(code)),
+	})
+	tw.Write(code)
+	tw.Close()
+
+	err = cli.CopyToContainer(ctx, resp.ID, "/code", &buf, container.CopyToContainerOptions{})
+	if err != nil {
+		panic(err)
+	}
+
+	err = cli.ContainerStart(ctx, resp.ID, container.StartOptions{})
+	if err != nil {
+		panic(err)
+	}
+	out, err := cli.ContainerLogs(ctx, resp.ID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer out.Close()
+
+	var stdout, stderr bytes.Buffer
+	_, err = stdcopy.StdCopy(&stdout, &stderr, out)
+	if err != nil {
+		panic(err)
+	}
+
+	return stdout.String(), stderr.String(), nil
 }
