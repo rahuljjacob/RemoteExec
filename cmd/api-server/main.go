@@ -79,5 +79,19 @@ func executeHandler(c *gin.Context) {
 func statusHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
 
-	c.JSON(200, gin.H{"job_id": jobID, "status": "Status check not yet implemented"})
+	hashKey := "job" + jobID
+	jobData, err := rdb.HGetAll(ctx, hashKey).Result()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "internal server error"})
+		panic(err)
+	}
+	if jobData["status"] == "" {
+		c.JSON(404, gin.H{
+			"error":  "job not found or expired",
+			"job_id": jobID,
+		})
+	} else {
+		c.JSON(200, gin.H{"job_id": jobID, "status": jobData["Status"], "output": jobData["Output"]})
+	}
+
 }

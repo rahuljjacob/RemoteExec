@@ -25,6 +25,7 @@ var rdb = redis.NewClient(&redis.Options{
 func main() {
 	var curJob *models.RedisJob
 	var stdout string
+	var stderr string
 	// var stderr string
 	var err error
 
@@ -38,7 +39,7 @@ func main() {
 	}
 	defer apiClient.Close()
 
-	stdout, _, err = utils.RunPythonJobContainer(
+	stdout, stderr, err = utils.RunPythonJobContainer(
 		curJob,
 		"python:3.11-alpine",
 		apiClient,
@@ -48,5 +49,13 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("The stdout is", stdout)
+	fmt.Println("==STDOUT==")
+	fmt.Println(stdout)
+
+	fmt.Println("==STDERR==")
+	fmt.Println(stderr)
+
+	utils.UpdateHashValues(rdb, stdout, stderr, curJob)
+
+	// utils.PrintRedisJob(rdb, curJob.Id)
 }

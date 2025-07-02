@@ -41,7 +41,7 @@ func PackRedisJob(source *models.ExecuteRequest, target *models.RedisJob, job_id
 }
 
 func PushJobToRedisQueue(rdb *redis.Client, job models.RedisJob) error {
-	ctx := context.Background() // Ensure ctx is defined locally if not global
+	ctx := context.Background()
 
 	hashKey := "job:" + job.Id
 
@@ -102,6 +102,33 @@ func PopJobFromRedisQueue(rdb *redis.Client, timeout time.Duration) (*models.Red
 	return job, nil
 }
 
+func UpdateHashValues(rdb *redis.Client, stdout string, stderr string, job *models.RedisJob) {
+
+	hashKey := "job:" + job.Id
+	if stderr != "" {
+		rdb.HSet(ctx, hashKey, "Status", "FAILED", "Output", stderr)
+	} else {
+		rdb.HSet(ctx, hashKey, "Status", "SUCCESS", "Output", stdout)
+	}
+}
+
+func PrintRedisJob(rdb *redis.Client, jobID string) {
+	hashKey := "job:" + jobID
+
+	jobData, err := rdb.HGetAll(ctx, hashKey).Result()
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(jobData["Id"])
+	fmt.Println(jobData["Language"])
+	fmt.Println(jobData["SourceCode"])
+	fmt.Println(jobData["SubmissionTime"])
+	fmt.Println(jobData["Status"])
+	fmt.Println(jobData["Output"])
+}
+
 func RunPythonJobContainer(
 	job *models.RedisJob,
 	imageName string,
@@ -112,8 +139,8 @@ func RunPythonJobContainer(
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:        imageName,
-		Cmd:          []string{"python3", "/code/main.py"},
-		WorkingDir:   "/code",
+		Cmd:          []string{"python3", "/main.py"},
+		WorkingDir:   "/",
 		AttachStdout: true,
 		AttachStderr: true,
 	}, &container.HostConfig{
@@ -121,9 +148,6 @@ func RunPythonJobContainer(
 		ReadonlyRootfs: false,
 		Privileged:     false,
 		CapDrop:        []string{"ALL"},
-		Tmpfs: map[string]string{
-			"/code": "rw",
-		},
 	}, nil, nil, "")
 
 	if err != nil {
@@ -147,7 +171,7 @@ func RunPythonJobContainer(
 	tw.Write(code)
 	tw.Close()
 
-	err = cli.CopyToContainer(ctx, resp.ID, "/code", &buf, container.CopyToContainerOptions{})
+	err = cli.CopyToContainer(ctx, resp.ID, "/", &buf, container.CopyToContainerOptions{})
 	if err != nil {
 		panic(err)
 	}
