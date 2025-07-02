@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	// "remoteExec/internal/models"
@@ -22,33 +23,42 @@ var rdb = redis.NewClient(&redis.Options{
 })
 
 func main() {
-	var curJob *models.RedisJob
-	var stdout string
-	var stderr string
-	// var stderr string
-	var err error
-
-	timeout := 100 * time.Second
-
-	curJob, err = utils.PopJobFromRedisQueue(rdb, timeout)
-
 	apiClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
 	defer apiClient.Close()
 
-	stdout, stderr, err = utils.RunPythonJobContainer(
-		curJob,
-		"python:3.11-alpine",
-		apiClient,
-	)
+	timeout := 100 * time.Second
 
-	if err != nil {
-		panic(err)
+	for {
+		var curJob *models.RedisJob
+		var stdout string
+		var stderr string
+		var err error
+
+		curJob, err = utils.PopJobFromRedisQueue(rdb, timeout)
+		if err != nil {
+			fmt.Println("Error popping job:", err)
+			continue
+		}
+		if curJob == nil {
+			continue
+		}
+
+		stdout, stderr, err = utils.RunPythonJobContainer(
+			curJob,
+			"python:3.11-alpine",
+			apiClient,
+		)
+
+		if err != nil {
+			fmt.Println("Error running container:", err)
+			continue
+		}
+
+		utils.UpdateHashValues(rdb, stdout, stderr, curJob)
+
+		// utils.PrintRedisJob(rdb, curJob.Id)
 	}
-
-	utils.UpdateHashValues(rdb, stdout, stderr, curJob)
-
-	// utils.PrintRedisJob(rdb, curJob.Id)
 }
