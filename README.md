@@ -20,12 +20,15 @@ A simple REST API for sandboxed code execution using Gin, Docker and Redis. Subm
 
 Execute 
 ```
-curl -X POST http://localhost:8080/execute \ -H "Content-Type: application/json" \ -d '{"language": "python", "source_code": "print(\"Hello\")"}'
+curl -X POST http://localhost:8080/execute \
+     -H "Content-Type: application/json" \
+     -d '{"language": "python", "source_code": "print(\"Hello\")"}'
+
 ```
 
 Status
 ```
-curl http://localhost:8080/status/job_id
+curl http://localhost:8080/status/:job_id
 ```
 
 

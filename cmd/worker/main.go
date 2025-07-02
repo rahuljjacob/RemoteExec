@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	// "remoteExec/internal/models"
@@ -48,12 +47,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	fmt.Println("==STDOUT==")
-	fmt.Println(stdout)
-
-	fmt.Println("==STDERR==")
-	fmt.Println(stderr)
 
 	utils.UpdateHashValues(rdb, stdout, stderr, curJob)
 

@@ -85,7 +85,8 @@ func statusHandler(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "internal server error"})
 		panic(err)
 	}
-	if jobData["status"] == "" {
+	if jobData["Status"] == "" {
+		fmt.Println(jobData["status"])
 		c.JSON(404, gin.H{
 			"error":  "job not found or expired",
 			"job_id": jobID,
