@@ -2,7 +2,7 @@
 
 A simple REST API for sandboxed code execution using Gin, Docker and Redis. Submit code, execute it securely in containers, and track the execution status.
 
-![Architecture Diagram|450](architecture.png)`
+![Architecture Diagram|300](architecture.png)`
 
 ## API Endpoints
 
