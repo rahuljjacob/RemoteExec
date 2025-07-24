@@ -45,7 +45,7 @@ func PushJobToRedisQueue(rdb *redis.Client, job models.RedisJob) error {
 
 	hashKey := "job:" + job.Id
 
-	_, err := rdb.HSet(ctx, hashKey, map[string]interface{}{
+	_, err := rdb.HSet(ctx, hashKey, map[string]any{
 		"Language":       job.Language,
 		"SourceCode":     job.SourceCode,
 		"SubmissionTime": job.SubmissionTime,
